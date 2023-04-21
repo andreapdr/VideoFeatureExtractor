@@ -1,7 +1,6 @@
 import os
 
 current_dir_path = os.path.dirname(os.path.realpath(__file__))
-print(current_dir_path)
 
 import torch as th
 import math
@@ -123,43 +122,45 @@ if __name__ == "__main__":
 
 def extract(
     dataset_path,
-    num_decoding_thread=4,
-    batch_size=64,
+    batch_size=1,
     l2_normalize=True,
     half_precision=False,
     debug=False,
+    model_path="VideoFeatureExtractor/model/s3d_howto100m.pth",
 ):
     from tqdm import tqdm
     from model import init_weight
     from videocnn.models import s3dg
 
     dataset = VideoLoader(
-        dataset_path,  # args.datastore_base,
+        dataset_path,
         framerate=FRAMERATE_DICT["s3dg"],
         size=SIZE_DICT["s3dg"],
         centercrop=CENTERCROP_DICT["s3dg"],
     )
     n_dataset = len(dataset)
-    sampler = RandomSequenceSampler(n_dataset, 10)
+    # sampler = RandomSequenceSampler(n_dataset, 10)
     loader = DataLoader(
         dataset,
         batch_size=1,
         shuffle=False,
-        num_workers=num_decoding_thread,
-        sampler=sampler if n_dataset > 10 else None,
+        # num_workers=1,
+        # num_workers=num_decoding_thread,
+        # sampler=sampler if n_dataset > 10 else None,
     )
     preprocess = Preprocessing("s3dg", FRAMERATE_DICT)
 
     model = s3dg.S3D(last_fc=False)
     model = model.cuda()
-    model_data = th.load("VideoFeatureExtractor/model/s3d_howto100m.pth")
+    model_data = th.load(model_path)
     model = init_weight(model, model_data)
 
     model.eval()
 
     with th.no_grad():
         k = 0
-        for data in tqdm(loader, disable=True if debug else False):
+        # for data in tqdm(loader, disable=True if debug else False):
+        for data in tqdm(loader, disable=False):
             k += 1
             input_file = data["input"][0]
             output_file = data["output"][0]

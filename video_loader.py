@@ -1,3 +1,4 @@
+import torchvision
 import torch as th
 from torch.utils.data import Dataset
 import pandas as pd
@@ -48,32 +49,65 @@ class VideoLoader(Dataset):
     def __getitem__(self, idx):
         video_path = self.csv["video_path"].values[idx]
         output_file = self.csv["feature_path"].values[idx]
+        start_time = self.csv["start_time"].values[idx]
+        end_time = self.csv["end_time"].values[idx]
+
+        if end_time != -1:
+            if ".mp4" in video_path:
+                segment_video_path = video_path.replace(
+                    ".mp4", "_{}_{}.mp4".format(start_time, end_time)
+                )
+            elif ".avi" in video_path:
+                segment_video_path = video_path.replace(
+                    ".avi", "_{}_{}.avi".format(start_time, end_time)
+                )
+            else:
+                raise ValueError(f"Video format not supported {video_path}")
+
+            segment_output_file = output_file.replace(
+                ".npy", "_{}_{}.npy".format(start_time, end_time)
+            )
+
+            if not os.path.exists(segment_output_file):
+                # we have to rely on torchvision to cut the videos at the moment
+                _video = torchvision.io.read_video(
+                    video_path, pts_unit="sec", start_pts=start_time, end_pts=end_time
+                )
+                torchvision.io.write_video(
+                    segment_video_path, _video[0], fps=_video[-1]["video_fps"]
+                )
+
+            video_path = segment_video_path
+            output_file = segment_output_file
+
         video = th.zeros(1)
 
-        if not (os.path.isfile(output_file)) and os.path.isfile(video_path):
-            # print("Decoding video: {}".format(video_path))
-            try:
-                h, w = self._get_video_dim(video_path)
+        if os.path.exists(output_file):
+            # if output file exsits, we skip loading the video (retrub th.Tensor() to avoid error in collate_fn dataloader)
+            return {"video": th.Tensor(), "input": video_path, "output": output_file}
 
-                height, width = self._get_output_dim(h, w)
-                cmd = (
-                    ffmpeg.input(video_path)
-                    .filter("fps", fps=self.framerate)
-                    .filter("scale", width, height)
-                )
-                if self.centercrop:
-                    x = int((width - self.size) / 2.0)
-                    y = int((height - self.size) / 2.0)
-                    cmd = cmd.crop(x, y, self.size, self.size)
-                out, _ = cmd.output("pipe:", format="rawvideo", pix_fmt="rgb24").run(
-                    capture_stdout=True, quiet=True
-                )
-                if self.centercrop and isinstance(self.size, int):
-                    height, width = self.size, self.size
-                video = np.frombuffer(out, np.uint8).reshape([-1, height, width, 3])
-                video = th.from_numpy(video.astype("float32"))
-                video = video.permute(0, 3, 1, 2)
-            except:
-                print("ffprobe failed at: {}".format(video_path))
+        try:
+            h, w = self._get_video_dim(video_path)
+
+            height, width = self._get_output_dim(h, w)
+            cmd = (
+                ffmpeg.input(video_path)
+                .filter("fps", fps=self.framerate)
+                .filter("scale", width, height)
+            )
+            if self.centercrop:
+                x = int((width - self.size) / 2.0)
+                y = int((height - self.size) / 2.0)
+                cmd = cmd.crop(x, y, self.size, self.size)
+            out, _ = cmd.output("pipe:", format="rawvideo", pix_fmt="rgb24").run(
+                capture_stdout=True, quiet=True
+            )
+            if self.centercrop and isinstance(self.size, int):
+                height, width = self.size, self.size
+            video = np.frombuffer(out, np.uint8).reshape([-1, height, width, 3])
+            video = th.from_numpy(video.astype("float32"))
+            video = video.permute(0, 3, 1, 2)
+        except:
+            print("ffprobe failed at: {}".format(video_path))
 
         return {"video": video, "input": video_path, "output": output_file}
